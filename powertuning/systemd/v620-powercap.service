@@ -1,0 +1,14 @@
+[Unit]
+Description=Apply 180 W power cap to Radeon PRO V620 cards
+# The apply script waits internally for the amdgpu hwmon nodes, so no
+# fragile ordering against udev/module load is needed.
+# NOTE: ExecStart must live outside user home dirs — on SELinux-enforcing
+# systems (Fedora) systemd cannot execute user_home_t scripts (203/EXEC).
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/v620-cap-apply.sh 180
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

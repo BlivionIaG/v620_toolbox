@@ -1,0 +1,42 @@
+--- a/drivers/gpu/drm/amd/pm/swsmu/smu11/sienna_cichlid_ppt.c
++++ b/drivers/gpu/drm/amd/pm/swsmu/smu11/sienna_cichlid_ppt.c
+@@ -624,6 +624,18 @@
+ 	return od_table->cap[cap];
+ }
+ 
++static noinline void sienna_cichlid_v620_min_powercap_fix(
++	struct smu_context *smu, uint32_t *min_power_limit)
++{
++	/* *min_power_limit is in WATTS here; hwmon scales to uW for sysfs. */
++	if (*min_power_limit > 120U) {
++		*min_power_limit = 120U;
++		dev_notice(smu->adev->dev,
++			   "V620 powerfix: allowing PPT limit down to 120 W on %s\n",
++			   dev_name(smu->adev->dev));
++	}
++}
++
+ static int sienna_cichlid_get_power_limit(struct smu_context *smu,
+ 					  uint32_t *current_power_limit,
+ 					  uint32_t *default_power_limit,
+@@ -670,6 +682,27 @@
+ 	if (min_power_limit) {
+ 		*min_power_limit = power_limit * (100 - od_percent_lower);
+ 		*min_power_limit /= 100;
++
++		/*
++		 * V620 powerfix: clamp the minimum PPT limit from the
++		 * VBIOS-declared 250 W to 120 W on Radeon PRO V620 so userspace
++		 * can power-cap below 250 W.
++		 *
++		 * Match is on PCI subsystem_device 0x0e34 — uniquely identifies
++		 * the AMD V620 reference board, machine-independent.
++		 */
++		if (smu->adev->pdev->vendor == 0x1002 &&
++		    smu->adev->pdev->device == 0x73a1 &&
++		    smu->adev->pdev->subsystem_vendor == 0x1002 &&
++		    smu->adev->pdev->subsystem_device == 0x0e34)
++			sienna_cichlid_v620_min_powercap_fix(smu, min_power_limit);
+ 	}
+ 	return 0;
+ }

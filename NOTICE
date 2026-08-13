@@ -1,0 +1,32 @@
+# v620_toolbox — per-file licensing notes
+
+This repo is distributed under the GNU General Public License v3
+(see LICENSE). A few files have different upstream provenance and
+inherit different licenses, listed below.
+
+# File                                              License            Notes
+# -------------------------------------------------  -----------------  ---------------------------------
+# All *.md files in this repo                       GPL-3.0            Authored for this guide.
+# All *.sh files in powertuning/scripts/,            GPL-3.0            Authored for this guide.
+# pcie_p2p/scripts/, or shared/                      
+# powertuning/systemd/v620-powercap.service         GPL-3.0            systemd unit
+# (no automation/ — rebuilds are manual; see powertuning/README.md §"Rebuild workflow")
+# powertuning/patches/v620-powercap-min-120W.patch  GPL-2.0      Derived from Linux kernel source
+#                                                                       (drivers/gpu/drm/amd/pm/swsmu/
+#                                                                        smu11/sienna_cichlid_ppt.c).
+#                                                                       Linux kernel is GPL-2.0;
+#                                                                       the patch inherits that license.
+# pcie_p2p/patches/v620-powercap-min-120W.patch  GPL-2.0          Same as above.
+#
+# License compatibility:
+#   GPL-3.0 is compatible with GPL-2.0 in both ways under the
+#   "one-way" rule (you can't add GPL-3.0 restrictions to GPL-2.0
+#   code, but you can combine them in a larger work as GPL-3.0).
+#   The patch files (GPL-2.0) may be combined with the surrounding
+#   GPL-3.0 work; the combined work is effectively GPL-3.0 for the
+#   non-patch portions, and the patch portions retain GPL-2.0.
+#
+# If you redistribute this repo:
+#   - Ship LICENSE (GPL-3.0 text)
+#   - Ship this NOTICE
+#   - Ship the patch files with their GPL-2.0 notices intact

@@ -1,0 +1,77 @@
+# Build artifacts
+*.rpm
+*.src.rpm
+*.tar.xz
+*.tar.gz
+*.tar.zst
+*.ko
+*.o
+*.so
+*.so.*
+*.abi3.so
+*.hsaco
+
+# dist-git / rpmbuild outputs
+/x86_64/
+/noarch/
+/kernel-*-build/
+/kernel-*-build-*/
+/build-logs/
+/*.log
+/build.log
+/build.err
+
+# Kernel module staging
+/modules.*.ko
+/Module.symvers
+
+# Source archives extracted for the bake
+/*.spec.orig
+/.config.old
+/.config.bak
+
+# Triton / vLLM / torch compile caches (host-local)
+/.triton/
+.cache/triton/
+.cache/vllm/
+.cache/torch_compile/
+.vllm-cache/
+
+# Edit / shell backup artifacts
+*.bak
+*.bak.*
+*.orig
+*.rej
+*.swp
+*.swo
+*~
+.\#*
+
+# Editor / IDE
+.vscode/
+.idea/
+*.iml
+.project
+.pydevproject
+
+# OS / desktop
+.DS_Store
+Thumbs.db
+.directory
+.Trash-*
+
+# Stale / tmp
+.stale-*/
+.tmp/
+*.tmp
+
+# Signed commits / git artifacts (safety)
+/.gpgsign/
+/.gitsign/
+
+# Build container artifacts (only if podman/docker runs inside)
+/.podman-cache/
+/.docker-cache/
+
+# Power-tuning: per-target runtime state
+.cache/
