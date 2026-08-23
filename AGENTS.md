@@ -14,8 +14,11 @@ A **per-feature guide** for the AMD Radeon PRO V620 (gfx1030) on Fedora
   sequence is `pcie_p2p/README.md` §"Verify".
 - `powertuning/` — lowering the V620 power cap to 120 W floor + 180 W
   boot cap. Patches, scripts, systemd unit live here.
+- `ubuntu_powertuning/` — same powercap goal on **Ubuntu 26.04**
+  (out-of-tree `amdgpu` rebuild; see [`ubuntu_powertuning/README.md`](ubuntu_powertuning/README.md)).
 
-The validated end-to-end stack requires **both** features.
+The validated end-to-end stack on Fedora requires **both** `pcie_p2p/` and
+`powertuning/`. Ubuntu powercap is independent of the Fedora P2P stack.
 
 ## What goes where
 
@@ -27,6 +30,8 @@ The validated end-to-end stack requires **both** features.
 | `v620-powercap.service` (systemd unit) | `powertuning/systemd/` |
 | `v620-kernel-bake.sh` (RPM build wrapper) | `powertuning/scripts/` (referenced by `pcie_p2p/`) |
 | `verify-p2p.sh` (P2P-specific check runner) | `pcie_p2p/scripts/` |
+| Ubuntu `v620-rebuild-amdgpu` | `ubuntu_powertuning/` |
+| Shared `v620-cap-apply.sh` (used by Ubuntu + Fedora) | `powertuning/scripts/` |
 
 If a feature needs a script from the other feature, reference it via
 `../<other-feature>/scripts/<script>`. **Do not duplicate** — the
