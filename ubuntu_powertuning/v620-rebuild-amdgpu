@@ -1,0 +1,204 @@
+#!/bin/bash
+set -euo pipefail
+
+KREL="${1:-$(uname -r)}"
+
+case "$KREL" in
+    *-generic) ;;
+    *)
+        echo "V620: skipping non-generic kernel: $KREL"
+        exit 0
+        ;;
+esac
+
+KBUILD="/lib/modules/$KREL/build"
+
+if [[ ! -d "$KBUILD" ]]; then
+    echo "V620: headers not installed for $KREL"
+    exit 1
+fi
+
+# 7.0.0-30-generic -> 7.0.0
+BASE="${KREL%%-*}"
+
+SRCDIR="/usr/src/linux-source-$BASE"
+TARBALL="$SRCDIR/linux-source-$BASE.tar.bz2"
+
+if [[ ! -f "$TARBALL" ]]; then
+    echo "V620: matching Ubuntu source not found:"
+    echo "  $TARBALL"
+    echo
+    echo "Install linux-source-$BASE before rebuilding."
+    exit 1
+fi
+
+WORK="/var/tmp/v620-amdgpu-$KREL"
+
+echo "V620: building patched amdgpu for $KREL"
+
+rm -rf "$WORK"
+mkdir -p "$WORK"
+
+echo "V620: extracting Ubuntu kernel source..."
+tar -xf "$TARBALL" -C "$WORK"
+
+KSRC="$WORK/linux-source-$BASE"
+
+if [[ ! -d "$KSRC/drivers/gpu/drm/amd" ]]; then
+    echo "V620: AMDGPU source tree not found"
+    exit 1
+fi
+
+echo "V620: applying V620 120 W minimum-power modification..."
+
+python3 - "$KSRC" <<'PY'
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+p = root / "drivers/gpu/drm/amd/pm/swsmu/smu11/sienna_cichlid_ppt.c"
+
+s = p.read_text()
+
+old1 = '''static bool sienna_cichlid_is_od_feature_supported(struct smu_11_0_7_overdrive_table *od_table,
+						   enum SMU_11_0_7_ODFEATURE_CAP cap)
+{
+	return od_table->cap[cap];
+}
+
+static int sienna_cichlid_get_power_limit(struct smu_context *smu,
+'''
+
+new1 = '''static bool sienna_cichlid_is_od_feature_supported(struct smu_11_0_7_overdrive_table *od_table,
+						   enum SMU_11_0_7_ODFEATURE_CAP cap)
+{
+	return od_table->cap[cap];
+}
+
+static noinline void sienna_cichlid_v620_min_powercap_fix(
+	struct smu_context *smu, uint32_t *min_power_limit)
+{
+	/* min_power_limit is in watts here; hwmon exposes microwatts. */
+	if (*min_power_limit > 120U) {
+		*min_power_limit = 120U;
+		dev_notice(smu->adev->dev,
+			   "V620 powerfix: allowing PPT limit down to 120 W on %s\\n",
+			   dev_name(smu->adev->dev));
+	}
+}
+
+static int sienna_cichlid_get_power_limit(struct smu_context *smu,
+'''
+
+old2 = '''	if (min_power_limit) {
+		*min_power_limit = power_limit * (100 - od_percent_lower);
+		*min_power_limit /= 100;
+	}
+	return 0;
+'''
+
+new2 = '''	if (min_power_limit) {
+		*min_power_limit = power_limit * (100 - od_percent_lower);
+		*min_power_limit /= 100;
+
+		if (smu->adev->pdev->vendor == 0x1002 &&
+		    smu->adev->pdev->device == 0x73a1 &&
+		    smu->adev->pdev->subsystem_vendor == 0x1002 &&
+		    smu->adev->pdev->subsystem_device == 0x0e34)
+			sienna_cichlid_v620_min_powercap_fix(smu, min_power_limit);
+	}
+	return 0;
+'''
+
+if old1 not in s:
+    raise SystemExit("V620: first source anchor not found; kernel source changed")
+
+if old2 not in s:
+    raise SystemExit("V620: second source anchor not found; kernel source changed")
+
+s = s.replace(old1, new1, 1)
+s = s.replace(old2, new2, 1)
+
+p.write_text(s)
+print("V620: source modification applied")
+PY
+
+BUILDDIR="$WORK/build"
+mkdir -p "$BUILDDIR/drivers/gpu/drm"
+
+cp -a "$KSRC/drivers/gpu/drm/amd" \
+      "$BUILDDIR/drivers/gpu/drm/"
+
+# Ubuntu's header package does not necessarily contain this generated/include
+# dependency required by an external AMDGPU subtree build.
+mkdir -p "$KBUILD/drivers/gpu/drm/amd/amdgpu"
+
+cp "$BUILDDIR/drivers/gpu/drm/amd/amdgpu/amdgpu_trace.h" \
+   "$KBUILD/drivers/gpu/drm/amd/amdgpu/amdgpu_trace.h"
+
+echo "V620: compiling amdgpu.ko..."
+
+make -C "$KBUILD" \
+    M="$BUILDDIR/drivers/gpu/drm/amd/amdgpu" \
+    -j"$(nproc)" \
+    amdgpu.ko
+
+MODULE="$BUILDDIR/drivers/gpu/drm/amd/amdgpu/amdgpu.ko"
+
+if [[ ! -f "$MODULE" ]]; then
+    echo "V620: module build did not produce amdgpu.ko"
+    exit 1
+fi
+
+VMAGIC="$(modinfo -F vermagic "$MODULE")"
+
+if [[ "$VMAGIC" != "$KREL "* ]]; then
+    echo "V620: ERROR: module vermagic mismatch"
+    echo "Expected: $KREL"
+    echo "Actual:   $VMAGIC"
+    exit 1
+fi
+
+NMOUT="$WORK/amdgpu-nm.txt"
+nm "$MODULE" > "$NMOUT"
+
+if ! grep -q 'sienna_cichlid_v620_min_powercap_fix' "$NMOUT"; then
+    echo "V620: ERROR: compiled module does not contain V620 patch"
+    exit 1
+fi
+
+echo "V620: module verified"
+
+DEST="/lib/modules/$KREL/updates"
+mkdir -p "$DEST"
+
+# Do not touch Canonical's module under kernel/drivers/...
+rm -f "$DEST/amdgpu.ko" "$DEST/amdgpu.ko.zst"
+
+cp "$MODULE" "$DEST/amdgpu.ko"
+
+zstd -q -f -19 \
+    "$DEST/amdgpu.ko" \
+    -o "$DEST/amdgpu.ko.zst"
+
+rm "$DEST/amdgpu.ko"
+
+depmod -a "$KREL"
+
+RESOLVED="$(modinfo -k "$KREL" -F filename amdgpu)"
+
+if [[ "$RESOLVED" != *"/updates/amdgpu.ko.zst" ]]; then
+    echo "V620: ERROR: modprobe does not resolve to patched module"
+    echo "Resolved module: $RESOLVED"
+    exit 1
+fi
+
+echo "V620: rebuilding initramfs for $KREL"
+update-initramfs -u -k "$KREL"
+
+echo
+echo "V620: SUCCESS"
+echo "Kernel: $KREL"
+echo "Module: $RESOLVED"
+
+rm -rf "$WORK"
