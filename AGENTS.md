@@ -7,15 +7,18 @@ patterns), see the AGENTS.md inside each feature folder.
 ## What this repo is
 
 A **per-feature guide** for the AMD Radeon PRO V620 (gfx1030) on Fedora
-+ AMD CPU. Two features are documented as independent guides:
++ AMD CPU. Three feature guides ship as independent folders:
 
 - `pcie_p2p/` — enabling GPU↔GPU PCIe Peer-to-Peer (kernel-config delta
   + pre-gfx1030 ASIC removal (per-host) + verification). The full check
   sequence is `pcie_p2p/README.md` §"Verify".
 - `powertuning/` — lowering the V620 power cap to 120 W floor + 180 W
   boot cap. Patches, scripts, systemd unit live here.
+- `ubuntu_powertuning/` — same powercap goal on **Ubuntu 26.04**
+  (out-of-tree `amdgpu` rebuild; see [`ubuntu_powertuning/README.md`](ubuntu_powertuning/README.md)).
 
-The validated end-to-end stack requires **both** features.
+The validated end-to-end stack on Fedora requires **both** `pcie_p2p/` and
+`powertuning/`. Ubuntu powercap is independent of the Fedora P2P stack.
 
 ## What goes where
 
@@ -27,6 +30,8 @@ The validated end-to-end stack requires **both** features.
 | `v620-powercap.service` (systemd unit) | `powertuning/systemd/` |
 | `v620-kernel-bake.sh` (RPM build wrapper) | `powertuning/scripts/` (referenced by `pcie_p2p/`) |
 | `verify-p2p.sh` (P2P-specific check runner) | `pcie_p2p/scripts/` |
+| Ubuntu `v620-rebuild-amdgpu` | `ubuntu_powertuning/` |
+| Shared `v620-cap-apply.sh` (used by Ubuntu + Fedora) | `powertuning/scripts/` |
 
 If a feature needs a script from the other feature, reference it via
 `../<other-feature>/scripts/<script>`. **Do not duplicate** — the
@@ -45,8 +50,8 @@ duplication creates drift over time.
 
 This repo is a Bash-script + kernel-patch + docs toolbox. There is **no
 application server, build system, or language package manager** — the
-"product" is the scripts in `*/scripts/` and the patch in
-`powertuning/patches/`. The validated target is **Fedora + a physical
+"product" is the scripts in `*/scripts/`, `ubuntu_powertuning/`, and the
+patch in `powertuning/patches/`. The validated target is **Fedora + a physical
 AMD Radeon PRO V620 (gfx1030)**; the Cloud VM is **Ubuntu with no GPU**,
 so scripts are linted and read-only diagnostics run but correctly report
 "no V620".
@@ -74,6 +79,6 @@ directives) and `pciutils` (`lspci`, used by the diagnostics). Plain
   you want a full summary here.
 - **Cannot run in Cloud:** `v620-kernel-bake.sh` and
   `v620-module-install.sh` need Fedora kernel dist-git + `kernel-devel` +
-  the physical V620. End-to-end kernel builds are out of scope on this
-  GPU-less VM. When `ubuntu_powertuning/` lands (see PR #1 / #3), the
-  same applies to `v620-rebuild-amdgpu` on Cloud VMs.
+  the physical V620. `ubuntu_powertuning/v620-rebuild-amdgpu` needs Ubuntu
+  `linux-source` + a `*-generic` kernel + V620 hardware. End-to-end kernel
+  builds are out of scope on this GPU-less VM.

@@ -6,6 +6,7 @@ A guide per feature for the AMD Radeon PRO V620 (gfx1030) on Fedora + AMD CPU:
 |---|---|---|
 | [`pcie_p2p/`](pcie_p2p/) | GPU↔GPU PCIe Peer-to-Peer (P2P) aperture | ✅ validated on Fedora 43, kernels 6.17.6 (pre-7) + 7.1.7 (post-7) |
 | [`powertuning/`](powertuning/) | Lower V620 power cap to 120 W floor + 180 W boot cap | ✅ validated on Fedora 43, same kernel matrix |
+| [`ubuntu_powertuning/`](ubuntu_powertuning/) | Same powercap goal on Ubuntu 26.04 (out-of-tree amdgpu rebuild) | ✅ validated on Ubuntu 26.04, kernel 7.0.0-30-generic |
 
 Each feature has its own `README.md` with the full recipe, prerequisites, and verification steps. Follow them in either order.
 

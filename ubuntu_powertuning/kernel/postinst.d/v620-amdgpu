@@ -1,0 +1,37 @@
+#!/bin/sh
+# Ubuntu kernel post-install hook — rebuild patched amdgpu for *-generic kernels.
+#
+# Install (from repo root):
+#   sudo cp ubuntu_powertuning/kernel/postinst.d/v620-amdgpu /etc/kernel/postinst.d/
+#   sudo chmod 755 /etc/kernel/postinst.d/v620-amdgpu
+#
+# Requires linux-headers-$KREL (install linux-headers-generic metapackage so
+# headers exist when new kernels land). See ubuntu_powertuning/README.md.
+#
+# Never fails the kernel package install — logs and exits 0 on error.
+
+KREL="${1:-}"
+
+case "$KREL" in
+    *-generic) ;;
+    *) exit 0 ;;
+esac
+
+REBUILD="/usr/local/sbin/v620-rebuild-amdgpu"
+if [ ! -x "$REBUILD" ]; then
+    logger -t v620-amdgpu "skip: $REBUILD not installed"
+    exit 0
+fi
+
+if [ ! -d "/lib/modules/$KREL/build" ]; then
+    logger -t v620-amdgpu \
+        "defer: no headers for $KREL — install linux-headers-$KREL then: sudo $REBUILD $KREL"
+    exit 0
+fi
+
+if ! "$REBUILD" "$KREL"; then
+    logger -t v620-amdgpu \
+        "rebuild failed for $KREL — kernel install OK; fix manually: sudo $REBUILD $KREL"
+fi
+
+exit 0

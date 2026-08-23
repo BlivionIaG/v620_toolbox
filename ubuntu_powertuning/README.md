@@ -5,6 +5,18 @@ power-tuning modification. It patches the Ubuntu `amdgpu` module so the
 V620 can expose a minimum power cap of **120 W**, and includes a helper
 script for applying a **180 W** power cap.
 
+## Status
+
+| | Ubuntu 26.04 |
+|---|---|
+| Rebuild script | `v620-rebuild-amdgpu` (Python-anchored patch + out-of-tree build) |
+| Floor | 120 W |
+| Boot cap | 180 W (via shared `../powertuning/scripts/v620-cap-apply.sh`) |
+| Validated on | Ubuntu 26.04 LTS, kernel `7.0.0-30-generic`, Radeon PRO V620 |
+
+Other Ubuntu kernel series may work if `sienna_cichlid_ppt.c` anchors match;
+re-run verification after any kernel upgrade.
+
 > **Important:** Keep at least one known-good older Ubuntu kernel
 > installed as a GRUB fallback. Kernel updates can change AMDGPU source
 > code and may require the patch/rebuild logic to be updated.
@@ -42,8 +54,10 @@ sudo apt update
 
 sudo apt install \
     build-essential \
+    linux-headers-generic \
     linux-headers-$(uname -r) \
     linux-source \
+    python3 \
     git \
     bc \
     flex \
@@ -53,6 +67,9 @@ sudo apt install \
     dwarves \
     zstd
 ```
+
+`linux-headers-generic` keeps headers available when new `*-generic` kernels
+install (required for the automatic rebuild hook in Step 12).
 
 ## 3. Make sure the installed source matches the running kernel series
 
@@ -81,12 +98,13 @@ kernel source series.
 
 ## 4. Install the Ubuntu V620 scripts
 
-From the repository's `ubuntu_powertuning` directory, install both
-scripts into `/usr/local/sbin/`:
+From the repository's `ubuntu_powertuning` directory, install the rebuild
+script and the **shared** cap-apply script from `powertuning/` (do not
+duplicate — see [`AGENTS.md`](AGENTS.md)):
 
 ``` bash
 sudo cp v620-rebuild-amdgpu /usr/local/sbin/
-sudo cp v620-cap-apply.sh /usr/local/sbin/
+sudo cp ../powertuning/scripts/v620-cap-apply.sh /usr/local/sbin/
 
 sudo chmod 755 /usr/local/sbin/v620-rebuild-amdgpu
 sudo chmod 755 /usr/local/sbin/v620-cap-apply.sh
@@ -133,6 +151,10 @@ The following build message is harmless:
 Skipping BTF generation for amdgpu.ko due to unavailability of vmlinux
 ```
 
+The build copies `amdgpu_trace.h` into `/lib/modules/<kernel>/build/` (same
+workaround as the Fedora out-of-tree path) so the external AMDGPU subtree can
+compile against Ubuntu's header package.
+
 ## 6. Verify Ubuntu will use the patched module
 
 Run:
@@ -173,7 +195,13 @@ sudo reboot
 
 ## 8. Verify the V620 patch after reboot
 
-Check for the driver's V620 power-fix message:
+Run the shared verification script (from the repo clone):
+
+``` bash
+../powertuning/scripts/v620-verify.sh
+```
+
+Or check manually — driver's V620 power-fix message:
 
 ``` bash
 sudo dmesg | grep -i 'V620 powerfix'
@@ -260,57 +288,42 @@ systemctl status v620-powercap.service --no-pager
 
 ## 12. Install the automatic kernel-update hook
 
-Create the Ubuntu kernel post-install hook:
+Copy the hook shipped in this repository (it never fails a kernel package
+install — failures are logged via `logger`):
 
 ``` bash
-sudo nano /etc/kernel/postinst.d/v620-amdgpu
-```
-
-Put the following in the file:
-
-``` bash
-#!/bin/sh
-set -e
-
-KREL="$1"
-
-case "$KREL" in
-    *-generic)
-        /usr/local/sbin/v620-rebuild-amdgpu "$KREL"
-        ;;
-esac
-
-exit 0
-```
-
-Save it and make it executable:
-
-``` bash
+sudo cp kernel/postinst.d/v620-amdgpu /etc/kernel/postinst.d/
 sudo chmod 755 /etc/kernel/postinst.d/v620-amdgpu
 ```
 
-Future Ubuntu generic-kernel installations should now invoke
-`v620-rebuild-amdgpu` automatically.
+Future Ubuntu `*-generic` kernel installations invoke
+`v620-rebuild-amdgpu` when headers are already present. If headers lag the
+image package, check `journalctl -t v620-amdgpu` and run manually:
+
+``` bash
+sudo /usr/local/sbin/v620-rebuild-amdgpu <new-kernel-release>
+```
 
 If a future kernel changes the relevant AMDGPU source code and the
 script can no longer find its expected source anchors, the rebuild
-should stop rather than silently installing an incorrectly patched
-module.
+stops with a clear error rather than silently installing an incorrectly
+patched module.
 
 ## Quick Setup Summary
 
 Install the required packages:
 
 ``` bash
-sudo apt install build-essential linux-headers-$(uname -r) linux-source \
-    git bc flex bison libssl-dev libelf-dev dwarves zstd
+sudo apt install build-essential linux-headers-generic linux-headers-$(uname -r) \
+    linux-source python3 git bc flex bison libssl-dev libelf-dev dwarves zstd
 ```
 
-Install the previously created rebuild script:
+Install the rebuild script and the shared cap-apply script:
 
 ``` bash
 sudo cp v620-rebuild-amdgpu /usr/local/sbin/
-sudo chmod 755 /usr/local/sbin/v620-rebuild-amdgpu
+sudo cp ../powertuning/scripts/v620-cap-apply.sh /usr/local/sbin/
+sudo chmod 755 /usr/local/sbin/v620-rebuild-amdgpu /usr/local/sbin/v620-cap-apply.sh
 ```
 
 Build and install the patched module:
@@ -366,5 +379,12 @@ The stock Canonical AMDGPU module remains under the normal kernel module
 tree and is not overwritten.
 
 If necessary, boot a known-good older kernel from GRUB and remove the
-custom override for the affected kernel, then run `depmod` and rebuild
-its initramfs.
+custom override for the affected kernel:
+
+``` bash
+KREL=7.0.0-30-generic   # example
+sudo rm -f "/lib/modules/$KREL/updates/amdgpu.ko.zst"
+sudo depmod -a "$KREL"
+sudo update-initramfs -u -k "$KREL"
+sudo reboot
+```

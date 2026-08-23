@@ -1,5 +1,30 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# v620-rebuild-amdgpu [KERNEL_RELEASE] — build & install patched amdgpu for Ubuntu.
+#
+# Patches sienna_cichlid_ppt.c (120 W V620 floor) and installs amdgpu.ko.zst
+# under /lib/modules/<krel>/updates/. Requires root, matching linux-headers,
+# and linux-source for the kernel BASE version (see README.md).
+#
+# Usage:
+#   sudo ./v620-rebuild-amdgpu [KERNEL_RELEASE]   (default: uname -r)
+#   ./v620-rebuild-amdgpu --help
+#
+# Skips non-*-generic kernels with exit 0.
+
 set -euo pipefail
+
+usage() {
+  sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+esac
+
+if [[ "$(id -u)" -ne 0 ]]; then
+  echo "V620: run as root (sudo)" >&2
+  exit 1
+fi
 
 KREL="${1:-$(uname -r)}"
 
