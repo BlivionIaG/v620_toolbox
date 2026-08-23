@@ -7,7 +7,7 @@ patterns), see the AGENTS.md inside each feature folder.
 ## What this repo is
 
 A **per-feature guide** for the AMD Radeon PRO V620 (gfx1030) on Fedora
-+ AMD CPU. Two features are documented as independent guides:
++ AMD CPU. Three feature guides ship as independent folders:
 
 - `pcie_p2p/` — enabling GPU↔GPU PCIe Peer-to-Peer (kernel-config delta
   + pre-gfx1030 ASIC removal (per-host) + verification). The full check
@@ -50,8 +50,8 @@ duplication creates drift over time.
 
 This repo is a Bash-script + kernel-patch + docs toolbox. There is **no
 application server, build system, or language package manager** — the
-"product" is the scripts in `*/scripts/` and the patch in
-`powertuning/patches/`. The validated target is **Fedora + a physical
+"product" is the scripts in `*/scripts/`, `ubuntu_powertuning/`, and the
+patch in `powertuning/patches/`. The validated target is **Fedora + a physical
 AMD Radeon PRO V620 (gfx1030)**; the Cloud VM is **Ubuntu with no GPU**,
 so scripts are linted and read-only diagnostics run but correctly report
 "no V620".

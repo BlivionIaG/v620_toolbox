@@ -318,11 +318,12 @@ sudo apt install build-essential linux-headers-generic linux-headers-$(uname -r)
     linux-source python3 git bc flex bison libssl-dev libelf-dev dwarves zstd
 ```
 
-Install the previously created rebuild script:
+Install the rebuild script and the shared cap-apply script:
 
 ``` bash
 sudo cp v620-rebuild-amdgpu /usr/local/sbin/
-sudo chmod 755 /usr/local/sbin/v620-rebuild-amdgpu
+sudo cp ../powertuning/scripts/v620-cap-apply.sh /usr/local/sbin/
+sudo chmod 755 /usr/local/sbin/v620-rebuild-amdgpu /usr/local/sbin/v620-cap-apply.sh
 ```
 
 Build and install the patched module:
