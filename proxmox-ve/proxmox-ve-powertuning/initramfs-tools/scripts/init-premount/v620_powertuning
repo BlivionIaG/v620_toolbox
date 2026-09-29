@@ -1,0 +1,28 @@
+#!/bin/sh
+#
+# initramfs-tools script: /usr/share/initramfs-tools/scripts/init-premount/v620_powertuning
+#
+# Not needed in the normal Proxmox setup (root is not on/behind the V620,
+# and amdgpu is not required pre-root-mount). Included as a hook point per
+# request, in case a specific host needs the power cap applied as early as
+# possible (e.g. very tight PSU headroom during early boot before
+# v620-powercap.service runs in the real root).
+#
+# Disabled by default. Enable by setting EARLY_CAP=yes in
+# /etc/default/v620-powertuning (that file is copied into the initramfs by
+# the hook script below only if EARLY_CAP=yes at build time — see hooks/
+# v620_powertuning for the copy step you'd add if you turn this on).
+
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in
+	prereqs) prereqs; exit 0 ;;
+esac
+
+[ -f /conf/v620-powertuning.conf ] || exit 0
+. /conf/v620-powertuning.conf
+[ "${EARLY_CAP:-no}" = "yes" ] || exit 0
+
+[ -x /sbin/v620-cap-apply.sh ] && /sbin/v620-cap-apply.sh "${WATTS:-180}" || true
+
+exit 0

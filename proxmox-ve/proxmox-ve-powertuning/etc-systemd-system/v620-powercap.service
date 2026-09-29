@@ -1,0 +1,12 @@
+[Unit]
+Description=Apply power cap to Radeon PRO V620 cards
+After=multi-user.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/v620-powertuning
+ExecStart=/usr/local/sbin/v620-cap-apply.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
