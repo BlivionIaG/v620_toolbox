@@ -1,0 +1,14 @@
+# /etc/default/v620-powertuning
+#
+# Read by:
+#   - v620-powercap.service (via v620-cap-apply.sh) -> WATTS
+#   - the DKMS PRE_BUILD step (pre-build.sh)         -> AMD_SRC_TARBALL / AMD_SRC_DIR
+
+# Power cap applied at boot to every detected V620 (valid range 120-250).
+WATTS=180
+
+# Optional: for hosts without internet access, point at a locally staged
+# kernel.org source tarball or a pre-extracted directory instead of letting
+# pre-build.sh download one. Leave unset to auto-download.
+#AMD_SRC_TARBALL=/root/linux-6.17.2.tar.xz
+#AMD_SRC_DIR=/root/linux-6.17.2

@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+#
+# pre-build.sh <kernelver> <arch>
+#
+# Runs as this DKMS module's PRE_BUILD step, from inside
+# /var/lib/dkms/v620-powertuning/1.0/build/ (dkms copies the module's
+# source tree there and cd's into it before invoking PRE_BUILD).
+#
+# Responsibilities:
+#   1. Work out the upstream kernel.org base version matching $kernelver
+#      (Proxmox/Ubuntu version strings look like "6.17.2-1-pve" or
+#      "7.0.0-3-pve" -> base "6.17.2" / "7.0.0").
+#   2. Fetch (or reuse a cached) drivers/gpu/drm/amd subtree for that base
+#      version from kernel.org, OR use a locally provided tarball/dir if
+#      the host has no internet access.
+#   3. Apply patches/v620-powercap.patch to it.
+#   4. Work around Proxmox/Ubuntu headers packages shipping an incomplete
+#      drivers/ mirror (same issue as the Fedora kernel-devel package) by
+#      copying amdgpu_trace.h into the running kernel's headers tree, since
+#      the tracepoint machinery resolves TRACE_INCLUDE_PATH relative to
+#      $(srctree) rather than the external M= build dir.
+#   5. Stage the patched tree at ./src/ so dkms.conf's MAKE[0]/CLEAN lines
+#      (which point at build/src/drivers/gpu/drm/amd/amdgpu) find it.
+#
+# Exit non-zero on any failure so `dkms build` reports it clearly instead
+# of silently producing an unpatched or missing module.
+
+set -euo pipefail
+
+KVER="$1"
+ARCH="${2:-x86_64}"
+HERE="$(pwd)"                       # .../v620-powertuning/1.0/build
+PATCH="${HERE}/patches/v620-powercap.patch"
+CONF_FILE="/etc/default/v620-powertuning"
+
+CACHE_DIR="/var/cache/v620-powertuning/sources"
+mkdir -p "$CACHE_DIR"
+
+# Allow an operator to override the source (air-gapped hosts, or to pin a
+# specific tag) via /etc/default/v620-powertuning:
+#   AMD_SRC_TARBALL=/root/linux-6.17.2.tar.xz
+#   AMD_SRC_DIR=/root/linux-6.17.2          (pre-extracted, already patched or not)
+AMD_SRC_TARBALL=""
+AMD_SRC_DIR=""
+# shellcheck disable=SC1090
+[ -f "$CONF_FILE" ] && . "$CONF_FILE"
+
+echo "v620-powertuning: preparing source for kernel ${KVER} (${ARCH})"
+
+# --- 1. Determine base upstream version -------------------------------
+BASE="$(echo "$KVER" | grep -oE '^[0-9]+\.[0-9]+(\.[0-9]+)?')"
+if [ -z "$BASE" ]; then
+	echo "v620-powertuning: could not parse base kernel version from '${KVER}'" >&2
+	exit 1
+fi
+MAJOR="$(echo "$BASE" | cut -d. -f1)"
+echo "v620-powertuning: target upstream base version ${BASE} (v${MAJOR}.x)"
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+# --- 2. Obtain the drivers/gpu/drm/amd tree ----------------------------
+if [ -n "$AMD_SRC_DIR" ] && [ -d "$AMD_SRC_DIR" ]; then
+	echo "v620-powertuning: using pre-extracted source at ${AMD_SRC_DIR}"
+	cp -a "$AMD_SRC_DIR" "$WORK/linux-src"
+else
+	TARBALL=""
+	if [ -n "$AMD_SRC_TARBALL" ] && [ -f "$AMD_SRC_TARBALL" ]; then
+		TARBALL="$AMD_SRC_TARBALL"
+	elif [ -f "${CACHE_DIR}/linux-${BASE}.tar.xz" ]; then
+		TARBALL="${CACHE_DIR}/linux-${BASE}.tar.xz"
+		echo "v620-powertuning: using cached ${TARBALL}"
+	else
+		URL="https://cdn.kernel.org/pub/linux/kernel/v${MAJOR}.x/linux-${BASE}.tar.xz"
+		echo "v620-powertuning: downloading ${URL}"
+		if command -v curl >/dev/null 2>&1; then
+			curl -fL --retry 3 -o "${CACHE_DIR}/linux-${BASE}.tar.xz.part" "$URL"
+		elif command -v wget >/dev/null 2>&1; then
+			wget -O "${CACHE_DIR}/linux-${BASE}.tar.xz.part" "$URL"
+		else
+			echo "v620-powertuning: neither curl nor wget available" >&2
+			exit 1
+		fi
+		mv "${CACHE_DIR}/linux-${BASE}.tar.xz.part" "${CACHE_DIR}/linux-${BASE}.tar.xz"
+		TARBALL="${CACHE_DIR}/linux-${BASE}.tar.xz"
+	fi
+
+	echo "v620-powertuning: extracting drivers/gpu/drm/amd from ${TARBALL}"
+	mkdir -p "$WORK/linux-src"
+	if ! tar -xJf "$TARBALL" -C "$WORK/linux-src" --strip-components=1 \
+		"linux-${BASE}/drivers/gpu/drm/amd" \
+		"linux-${BASE}/drivers/gpu/drm/amd/include" 2>/dev/null; then
+		# Some releases nest include/ differently; fall back to extracting
+		# the whole drivers/gpu/drm/amd path only, ignoring the second
+		# (possibly redundant) pattern above if it errored.
+		tar -xJf "$TARBALL" -C "$WORK/linux-src" --strip-components=1 \
+			"linux-${BASE}/drivers/gpu/drm/amd"
+	fi
+fi
+
+if [ ! -d "$WORK/linux-src/drivers/gpu/drm/amd/amdgpu" ] && \
+   [ ! -d "$WORK/linux-src/amd/amdgpu" ]; then
+	echo "v620-powertuning: extracted tree does not contain drivers/gpu/drm/amd/amdgpu" >&2
+	exit 1
+fi
+
+# Normalize so we always end up with .../drivers/gpu/drm/amd/amdgpu
+if [ -d "$WORK/linux-src/amd/amdgpu" ] && [ ! -d "$WORK/linux-src/drivers/gpu/drm/amd/amdgpu" ]; then
+	mkdir -p "$WORK/linux-src/drivers/gpu/drm"
+	mv "$WORK/linux-src/amd" "$WORK/linux-src/drivers/gpu/drm/amd"
+fi
+
+# --- 3. Apply the patch --------------------------------------------------
+echo "v620-powertuning: applying v620-powercap.patch"
+( cd "$WORK/linux-src" && patch -p1 --forward -r - < "$PATCH" ) \
+	|| { echo "v620-powertuning: patch failed to apply against ${BASE} — the amdgpu source may have drifted from what this patch targets. See README troubleshooting section." >&2; exit 1; }
+
+# --- 3a. Adapt drm_exec API for newer Proxmox kernels ------------------
+DRM_EXEC_H="/lib/modules/${KVER}/build/include/drm/drm_exec.h"
+AMDGPU_SRC="$WORK/linux-src/drivers/gpu/drm/amd/amdgpu"
+
+if grep -qE '^#[[:space:]]*define[[:space:]]+drm_exec_for_each_locked_object\(exec,[[:space:]]*obj\)' "$DRM_EXEC_H"; then
+	echo "v620-powertuning: detected new 2-argument drm_exec API"
+
+	grep -rl 'drm_exec_for_each_locked_object' "$AMDGPU_SRC" \
+		--include='*.c' |
+	while read -r file; do
+		sed -i \
+			-e 's/drm_exec_for_each_locked_object(\([^,]*\), index, obj)/drm_exec_for_each_locked_object(\1, obj)/g' \
+			-e 's/drm_exec_for_each_locked_object(\([^,]*\), index, gobj)/drm_exec_for_each_locked_object(\1, gobj)/g' \
+			"$file"
+	done
+else
+	echo "v620-powertuning: using legacy 3-argument drm_exec API"
+fi
+
+# --- 4. Work around incomplete headers-package driver mirror ------------
+TRACE_SRC="$WORK/linux-src/drivers/gpu/drm/amd/amdgpu/amdgpu_trace.h"
+HDR_DEST_DIR="/usr/src/linux-headers-${KVER}/drivers/gpu/drm/amd/amdgpu"
+if [ -f "$TRACE_SRC" ] && [ -d "/usr/src/linux-headers-${KVER}" ] && [ ! -f "${HDR_DEST_DIR}/amdgpu_trace.h" ]; then
+	echo "v620-powertuning: copying amdgpu_trace.h into ${HDR_DEST_DIR} (headers package ships a partial drivers/ mirror)"
+	mkdir -p "$HDR_DEST_DIR"
+	cp "$TRACE_SRC" "$HDR_DEST_DIR/" 2>/dev/null || \
+		echo "v620-powertuning: warning: could not copy amdgpu_trace.h (build may fail; see README)" >&2
+fi
+
+# --- 5. Stage ------------------------------------------------------------
+rm -rf "${HERE}/src"
+mkdir -p "${HERE}/src/drivers/gpu/drm"
+mv "$WORK/linux-src/drivers/gpu/drm/amd" "${HERE}/src/drivers/gpu/drm/amd"
+
+echo "v620-powertuning: source staged at ${HERE}/src/drivers/gpu/drm/amd — ready to build"

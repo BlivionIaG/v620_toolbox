@@ -1,0 +1,45 @@
+#!/bin/sh
+#
+# initramfs-tools hook: /usr/share/initramfs-tools/hooks/v620_powertuning
+#
+# On Proxmox VE, amdgpu normally does NOT need to be present in the
+# initramfs (there's no early-KMS requirement to get to the root
+# filesystem). This hook is a no-op unless amdgpu has been explicitly
+# requested for early inclusion (e.g. "amdgpu" listed in
+# /etc/initramfs-tools/modules, or MODULES=most), in which case it makes
+# sure the *patched* DKMS module — not any stale in-tree copy — is what
+# gets copied in, and pulls in its firmware.
+#
+# dkms.conf already sets REMAKE_INITRD="yes", so update-initramfs runs
+# automatically after every (re)build; this hook just makes the inclusion
+# correct when it happens.
+
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in
+	prereqs) prereqs; exit 0 ;;
+esac
+
+. /usr/share/initramfs-tools/hook-functions
+
+KVER="${version:-$(uname -r)}"
+
+# Only act if amdgpu is actually going to be pulled into this initramfs.
+if ! grep -qE '^\s*amdgpu\s*$' /etc/initramfs-tools/modules 2>/dev/null \
+   && [ "$(sed -n 's/^MODULES=//p' /etc/initramfs-tools/initramfs.conf 2>/dev/null)" != "most" ]; then
+	exit 0
+fi
+
+DKMS_MOD="/lib/modules/${KVER}/updates/dkms/amdgpu.ko"
+[ -f "$DKMS_MOD" ] || DKMS_MOD="/lib/modules/${KVER}/updates/dkms/amdgpu.ko.zst"
+[ -f "$DKMS_MOD" ] || DKMS_MOD="/lib/modules/${KVER}/updates/dkms/amdgpu.ko.xz"
+
+if [ -f "$DKMS_MOD" ]; then
+	echo "v620_powertuning hook: including patched ${DKMS_MOD}"
+	manual_add_modules amdgpu
+	copy_firmware amdgpu 2>/dev/null || true
+else
+	echo "v620_powertuning hook: no DKMS-built amdgpu.ko found for ${KVER} yet (module not built?)" >&2
+fi
+
+exit 0
